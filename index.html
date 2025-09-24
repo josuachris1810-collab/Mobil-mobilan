@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Game Mobil-Mobilan dengan Jalan Aspal Simetris & Blok Dinamis</title>
+<style>
+  body {
+    margin: 0;
+    background: #222;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    color: white;
+  }
+  #game {
+    position: relative;
+    width: 300px;
+    height: 500px;
+    background: #333; /* warna aspal gelap */
+    border: 3px solid #fff;
+    overflow: hidden;
+  }
+  /* Efek marka jalan simetris: dua garis vertikal */
+  #roadLines {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 60px; /* lebar area garis */
+    height: 100%;
+    transform: translateX(-50%);
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none; /* supaya tidak mengganggu klik */
+    z-index: 1;
+  }
+  .line {
+    width: 6px;
+    height: 40px;
+    background: white;
+    border-radius: 3px;
+    animation: moveDown 1s linear infinite;
+  }
+  /* Offset animasi untuk garis kedua */
+  .line:nth-child(2) {
+    animation-delay: 0.5s;
+  }
+  .line:nth-child(3) {
+    animation-delay: 0.25s;
+  }
+  .line:nth-child(4) {
+    animation-delay: 0.75s;
+  }
+  .line:nth-child(5) {
+    animation-delay: 0.1s;
+  }
+  .line:nth-child(6) {
+    animation-delay: 0.6s;
+  }
+
+  @keyframes moveDown {
+    0% {
+      transform: translateY(-50px);
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(550px);
+      opacity: 1;
+    }
+  }
+
+  #car {
+    position: absolute;
+    bottom: 20px;
+    left: 130px;
+    width: 40px;
+    height: 70px;
+    background: red;
+    border-radius: 10px;
+    box-shadow: 0 0 10px #f00;
+    transition: left 0.05s linear;
+    z-index: 10;
+  }
+  .block {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    border-radius: 5px;
+    z-index: 5;
+  }
+  #score {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    font-size: 18px;
+    z-index: 20;
+  }
+  #gameOver {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 32px;
+    color: yellow;
+    display: none;
+    text-align: center;
+    z-index: 30;
+  }
+  #controls {
+    margin-top: 15px;
+    width: 300px;
+    display: flex;
+    justify-content: space-around;
+  }
+  button.control-btn {
+    width: 100px;
+    padding: 15px 0;
+    font-size: 18px;
+    border: none;
+    border-radius: 8px;
+    background: #555;
+    color: white;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 4px #333;
+    transition: background 0.3s;
+  }
+  button.control-btn:active {
+    box-shadow: 0 2px #222;
+    transform: translateY(2px);
+  }
+</style>
+</head>
+<body>
+  <div id="game">
+    <div id="score">Skor: 0</div>
+    <div id="roadLines">
+      <div class="line"></div>
+      <div class="line"></div>
+      <div class="line"></div>
+      <div class="line"></div>
+      <div class="line"></div>
+      <div class="line"></div>
+    </div>
+    <div id="car"></div>
+    <div id="gameOver">
+      GAME OVER<br>
+      <button id="restartBtn">Main Lagi</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button class="control-btn" id="leftBtn">Geser Kiri</button>
+    <button class="control-btn" id="rightBtn">Geser Kanan</button>
+  </div>
+
+<script>
+  const game = document.getElementById('game');
+  const car = document.getElementById('car');
+  const scoreDisplay = document.getElementById('score');
+  const gameOverDisplay = document.getElementById('gameOver');
+  const restartBtn = document.getElementById('restartBtn');
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+
+  const gameWidth = 300;
+  const gameHeight = 500;
+  const carWidth = 40;
+  const carHeight = 70;
+  const blockSize = 50;
+
+  let carX = 130; // posisi horizontal mobil
+  let carY = gameHeight - carHeight - 20; // posisi vertikal mobil (fixed)
+  let blocks = [];
+  let score = 0;
+  let blockInterval;
+  let isGameOver = false;
+
+  // Untuk gerakan smooth tombol geser
+  let moveLeftActive = false;
+  let moveRightActive = false;
+  let moveSpeed = 5; // pixel per frame
+
+  // Warna-warni blok
+  const blockColors = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c'];
+
+  // Interval awal blok muncul (ms)
+  let blockSpawnInterval = 1200;
+
+  // Gerakkan mobil ke kiri/kanan dengan batas
+  function moveCar(direction) {
+    if (isGameOver) return;
+    if (direction === 'left') {
+      carX -= moveSpeed;
+      if (carX < 0) carX = 0;
+    } else if (direction === 'right') {
+      carX += moveSpeed;
+      if (carX > gameWidth - carWidth) carX = gameWidth - carWidth;
+    }
+    car.style.left = carX + 'px';
+  }
+
+  // Buat blok baru di posisi acak atas dengan warna acak
+  function createBlock() {
+    const block = document.createElement('div');
+    block.classList.add('block');
+    const xPos = Math.floor(Math.random() * (gameWidth - blockSize));
+    block.style.left = xPos + 'px';
+    block.style.top = '-50px';
+    // Pilih warna acak
+    const color = blockColors[Math.floor(Math.random() * blockColors.length)];
+    block.style.backgroundColor = color;
+    game.appendChild(block);
+    blocks.push({element: block, x: xPos, y: -50});
+  }
+
+  // Update posisi blok dan cek tabrakan
+  function updateBlocks() {
+    for (let i = blocks.length -1; i >= 0; i--) {
+      let b = blocks[i];
+      b.y += 5; // kecepatan blok turun
+      if (b.y > gameHeight) {
+        // blok keluar layar, hapus dan tambah skor
+        game.removeChild(b.element);
+        blocks.splice(i, 1);
+        score++;
+        scoreDisplay.textContent = 'Skor: ' + score;
+        adjustBlockSpeed();
+        continue;
+      }
+      b.element.style.top = b.y + 'px';
+
+      // Cek tabrakan dengan mobil
+      if (isCollide(carX, carY, carWidth, carHeight, b.x, b.y, blockSize, blockSize)) {
+        endGame();
+      }
+    }
+  }
+
+  // Fungsi cek tabrakan kotak
+  function isCollide(x1, y1, w1, h1, x2, y2, w2, h2) {
+    return !(x1 + w1 < x2 || x1 > x2 + w2 || y1 + h1 < y2 || y1 > y2 + h2);
+  }
+
+  // Atur kecepatan spawn blok sesuai skor
+  function adjustBlockSpeed() {
+    // Semakin tinggi skor, interval spawn blok semakin kecil (maks 400ms)
+    let newInterval = Math.max(400, 1200 - score * 30);
+    if (newInterval !== blockSpawnInterval) {
+      blockSpawnInterval = newInterval;
+      clearInterval(blockInterval);
+      blockInterval = setInterval(createBlock, blockSpawnInterval);
+    }
+  }
+
+  // Loop utama untuk update game
+  function gameLoop() {
+    if (!isGameOver) {
+      if (moveLeftActive) moveCar('left');
+      if (moveRightActive) moveCar('right');
+      updateBlocks();
+      requestAnimationFrame(gameLoop);
+    }
+  }
+
+  // Mulai game
+  function startGame() {
+    isGameOver = false;
+    score = 0;
+    scoreDisplay.textContent = 'Skor: 0';
+    carX = 130;
+    car.style.left = carX + 'px';
+
+    // Hapus blok lama
+    blocks.forEach(b => game.removeChild(b.element));
+    blocks = [];
+
+    gameOverDisplay.style.display = 'none';
+
+    // Reset interval spawn blok
+    blockSpawnInterval = 1200;
+    clearInterval(blockInterval);
+    blockInterval = setInterval(createBlock, blockSpawnInterval);
+
+    // Mulai loop utama
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Akhiri game
+  function endGame() {
+    isGameOver = true;
+    clearInterval(blockInterval);
+    gameOverDisplay.style.display = 'block';
+  }
+
+  // Event keyboard
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') {
+      moveLeftActive = true;
+    } else if (e.key === 'ArrowRight') {
+      moveRightActive = true;
+    }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.key === 'ArrowLeft') {
+      moveLeftActive = false;
+    } else if (e.key === 'ArrowRight') {
+      moveRightActive = false;
+    }
+  });
+
+  // Event tombol geser: tekan dan tahan
+  leftBtn.addEventListener('mousedown', () => {
+    moveLeftActive = true;
+  });
+  leftBtn.addEventListener('mouseup', () => {
+    moveLeftActive = false;
+  });
+  leftBtn.addEventListener('mouseleave', () => {
+    moveLeftActive = false;
+  });
+
+  rightBtn.addEventListener('mousedown', () => {
+    moveRightActive = true;
+  });
+  rightBtn.addEventListener('mouseup', () => {
+    moveRightActive = false;
+  });
+  rightBtn.addEventListener('mouseleave', () => {
+    moveRightActive = false;
+  });
+
+  // Untuk perangkat sentuh (mobile)
+  leftBtn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    moveLeftActive = true;
+  }, {passive:false});
+  leftBtn.addEventListener('touchend', e => {
+    e.preventDefault();
+    moveLeftActive = false;
+  }, {passive:false});
+
+  rightBtn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    moveRightActive = true;
+  }, {passive:false});
+  rightBtn.addEventListener('touchend', e => {
+    e.preventDefault();
+    moveRightActive = false;
+  }, {passive:false});
+
+  restartBtn.addEventListener('click', () => {
+    startGame();
+  });
+
+  // Mulai game saat halaman dimuat
+  startGame();
+</script>
+</body>
+</html>
